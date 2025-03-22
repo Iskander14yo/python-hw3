@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from app.db.database import engine, Base, get_db
-from app.api import auth, links
+from app.api import auth, links, admin
 from app.services.link_service import cleanup_expired_links
+from app.db.init_db import init_db
 
 
 # Create tables
@@ -27,6 +27,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router)
 app.include_router(links.router)
+app.include_router(admin.router)
 
 
 @app.get("/")
@@ -36,6 +37,6 @@ async def root():
 
 @app.on_event("startup")
 async def startup_event():
-    # Cleanup expired links on startup
     db = next(get_db())
+    init_db(db)
     cleanup_expired_links(db)

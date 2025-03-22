@@ -19,7 +19,7 @@ def init_db(db: Session) -> None:
         admin_user = db.query(User).filter(User.username == admin_username).first()
         if not admin_user:
             admin = UserCreate(username=admin_username, email=admin_email, password=admin_password)
-            create_user(db, admin)
+            create_user(db, admin, is_admin=True)
             print(f"Created admin user: {admin_username}")
         else:
             print(f"Admin user already exists: {admin_username}")

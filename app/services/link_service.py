@@ -1,6 +1,7 @@
+import os
 import random
 import string
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from typing import Optional
 from fastapi import HTTPException
@@ -31,7 +32,11 @@ def create_link(db: Session, link_data: LinkCreate, user: Optional[User] = None)
             )
 
         # Check if the custom alias already exists
-        existing_alias = db.query(Link).filter(Link.custom_alias == link_data.custom_alias).first()
+        existing_alias = (
+            db.query(Link)
+            .filter(Link.custom_alias == link_data.custom_alias, Link.is_active == True)
+            .first()
+        )
         if existing_alias:
             raise HTTPException(status_code=400, detail="Custom alias already exists")
 
@@ -40,7 +45,11 @@ def create_link(db: Session, link_data: LinkCreate, user: Optional[User] = None)
         # Generate a unique short code
         while True:
             short_code = generate_short_code()
-            existing_link = db.query(Link).filter(Link.short_code == short_code).first()
+            existing_link = (
+                db.query(Link)
+                .filter(Link.short_code == short_code, Link.is_active == True)
+                .first()
+            )
             if not existing_link:
                 break
 
@@ -59,12 +68,24 @@ def create_link(db: Session, link_data: LinkCreate, user: Optional[User] = None)
         if existing_url:
             return existing_url
 
+    # Handle expiration date
+    now = datetime.now(timezone.utc)
+    if link_data.expires_at:
+        # Validate that expires_at is in the future
+        if link_data.expires_at <= now:
+            raise HTTPException(status_code=400, detail="Expiration date must be in the future")
+        expires_at = link_data.expires_at
+    else:
+        # Set default expiration based on LINK_INACTIVE_DAYS
+        inactive_days = int(os.getenv("LINK_INACTIVE_DAYS", "30"))
+        expires_at = now + timedelta(days=inactive_days)
+
     # Create new link
     db_link = Link(
         short_code=short_code,
         original_url=link_data.original_url,
         custom_alias=link_data.custom_alias,
-        expires_at=link_data.expires_at,
+        expires_at=expires_at,
         user_id=user.id if user else None,
     )
 
@@ -75,54 +96,59 @@ def create_link(db: Session, link_data: LinkCreate, user: Optional[User] = None)
     return db_link
 
 
-def get_link_by_short_code(db: Session, short_code: str) -> Optional[Link]:
+def get_link_by_short_code(
+    db: Session, short_code: str, is_redirect: bool = True
+) -> Optional[Link]:
     """Get a link by its short code."""
     redis = get_redis()
+    redis_ttl = int(os.getenv("REDIS_CACHE_TTL", "3600"))
 
     # Try to get from cache first
     cached_link = redis.get(f"link:{short_code}")
     if cached_link:
         # Update click count in DB asynchronously
-        db_link = db.query(Link).filter(Link.short_code == short_code).first()
-        if db_link:
+        db_link = (
+            db.query(Link).filter(Link.short_code == short_code, Link.is_active == True).first()
+        )
+        if db_link and is_redirect:
             db_link.clicks += 1
-            db_link.last_used_at = datetime.utcnow()
+            db_link.last_used_at = datetime.now()
             db.commit()
 
             # Update cache with new click count
-            redis.set(f"link:{short_code}", db_link.original_url, ex=3600)  # 1 hour expiry
+            # redis.set(f"link:{short_code}", db_link.original_url, ex=redis_ttl)
 
         return db_link
 
     # Get from database
-    db_link = db.query(Link).filter(Link.short_code == short_code).first()
+    db_link = db.query(Link).filter(Link.short_code == short_code, Link.is_active == True).first()
 
-    if db_link:
+    if db_link and is_redirect:
         # Check if link has expired
-        if db_link.expires_at and db_link.expires_at < datetime.utcnow():
+        if db_link.expires_at and db_link.expires_at < datetime.now():
             db_link.is_active = False
             db.commit()
             return None
 
         # Update click count and last used timestamp
         db_link.clicks += 1
-        db_link.last_used_at = datetime.utcnow()
+        db_link.last_used_at = datetime.now()
         db.commit()
 
         # Cache the link
-        redis.set(f"link:{short_code}", db_link.original_url, ex=3600)  # 1 hour expiry
+        redis.set(f"link:{short_code}", db_link.original_url, ex=redis_ttl)
 
     return db_link
 
 
 def get_link_stats(db: Session, short_code: str) -> Optional[Link]:
     """Get statistics for a link."""
-    return db.query(Link).filter(Link.short_code == short_code).first()
+    return db.query(Link).filter(Link.short_code == short_code, Link.is_active == True).first()
 
 
 def update_link(db: Session, short_code: str, link_data: LinkUpdate, user: User) -> Optional[Link]:
     """Update an existing link."""
-    db_link = db.query(Link).filter(Link.short_code == short_code).first()
+    db_link = db.query(Link).filter(Link.short_code == short_code, Link.is_active == True).first()
 
     if not db_link:
         return None
@@ -139,7 +165,11 @@ def update_link(db: Session, short_code: str, link_data: LinkUpdate, user: User)
                 detail=f"Custom alias must be at least {CUSTOM_ALIAS_MIN_LENGTH} characters",
             )
 
-        existing_alias = db.query(Link).filter(Link.custom_alias == link_data.custom_alias).first()
+        existing_alias = (
+            db.query(Link)
+            .filter(Link.custom_alias == link_data.custom_alias, Link.is_active == True)
+            .first()
+        )
         if existing_alias:
             raise HTTPException(status_code=400, detail="Custom alias already exists")
 
@@ -165,7 +195,7 @@ def update_link(db: Session, short_code: str, link_data: LinkUpdate, user: User)
 
 def delete_link(db: Session, short_code: str, user: User) -> bool:
     """Delete a link."""
-    db_link = db.query(Link).filter(Link.short_code == short_code).first()
+    db_link = db.query(Link).filter(Link.short_code == short_code, Link.is_active == True).first()
 
     if not db_link:
         return False
@@ -192,7 +222,7 @@ def search_by_original_url(db: Session, original_url: str) -> list[Link]:
 
 def cleanup_expired_links(db: Session) -> int:
     """Mark expired links as inactive."""
-    now = datetime.utcnow()
+    now = datetime.now()
     expired_links = db.query(Link).filter(Link.expires_at < now, Link.is_active == True).all()
 
     count = 0

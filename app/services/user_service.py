@@ -16,11 +16,14 @@ def get_user_by_email(db: Session, email: str) -> Optional[User]:
     return db.query(User).filter(User.email == email).first()
 
 
-def create_user(db: Session, user_data: UserCreate) -> User:
+def create_user(db: Session, user_data: UserCreate, is_admin: bool = False) -> User:
     """Create a new user."""
     hashed_password = get_password_hash(user_data.password)
     db_user = User(
-        username=user_data.username, email=user_data.email, hashed_password=hashed_password
+        username=user_data.username,
+        email=user_data.email,
+        hashed_password=hashed_password,
+        is_admin=is_admin,
     )
     db.add(db_user)
     db.commit()
