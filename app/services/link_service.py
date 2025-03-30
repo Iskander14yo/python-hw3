@@ -113,7 +113,7 @@ def get_link_by_short_code(
             db.query(Link).filter(Link.short_code == short_code, Link.is_active == True).first()
         )
         if db_link:
-            now = datetime.now() # Use consistent timezone
+            now = datetime.now(timezone.utc) # Use consistent timezone
             # Check expiration again even on cache hit
             if db_link.expires_at and db_link.expires_at < now:
                  db_link.is_active = False
@@ -136,7 +136,7 @@ def get_link_by_short_code(
     db_link = db.query(Link).filter(Link.short_code == short_code, Link.is_active == True).first()
 
     if db_link:
-        now = datetime.now() # Use consistent timezone
+        now = datetime.now(timezone.utc) # Use consistent timezone
         # Check if link has expired
         if db_link.expires_at and db_link.expires_at < now:
             db_link.is_active = False
@@ -151,7 +151,9 @@ def get_link_by_short_code(
             db.commit() # Commit stats update before caching
 
         # Cache the original_url
-        redis.set(cache_key, db_link.original_url, ex=redis_ttl)
+        # Ensure the value passed is treated as a string for redis
+        original_url_value: str = str(db_link.original_url)
+        redis.set(cache_key, original_url_value, ex=redis_ttl)
 
     return db_link
 
@@ -203,7 +205,7 @@ def update_link(db: Session, short_code: str, link_data: LinkUpdate, user: User)
         # If original URL changes, the cached value needs update/invalidation
 
     if link_data.expires_at:
-         now = datetime.now() # Use consistent timezone
+         now = datetime.now(timezone.utc) # Use consistent timezone
          if link_data.expires_at <= now:
              raise HTTPException(status_code=400, detail="Expiration date must be in the future")
          db_link.expires_at = link_data.expires_at
@@ -254,7 +256,7 @@ def search_by_original_url(db: Session, original_url: str) -> list[Link]:
 
 def cleanup_expired_links(db: Session) -> int:
     """Mark expired links as inactive and invalidate cache."""
-    now = datetime.now() # Use consistent timezone
+    now = datetime.now(timezone.utc) # Use consistent timezone
     expired_links = db.query(Link).filter(Link.expires_at < now, Link.is_active == True).all()
     redis = get_redis()
 
