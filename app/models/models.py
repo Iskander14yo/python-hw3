@@ -10,6 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import expression, func
+from datetime import timezone
 
 from app.db.database import Base
 
@@ -23,7 +24,7 @@ class User(Base):
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     links = relationship("Link", back_populates="owner")
 
@@ -35,9 +36,9 @@ class Link(Base):
     short_code = Column(String, nullable=False)
     original_url = Column(Text, nullable=False)
     custom_alias = Column(String, nullable=True)
-    created_at = Column(DateTime, default=func.now())
-    last_used_at = Column(DateTime, nullable=True)
-    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
     clicks = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
