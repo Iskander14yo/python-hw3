@@ -102,7 +102,7 @@ def test_create_link_with_custom_alias(mock_db, mock_user):
 def test_create_link_with_expiration(mock_db, mock_user):
     """Test creating a link with an expiration date."""
     # Prepare test data
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    expires_at = datetime.now() + timedelta(days=7)
     link_data = LinkCreate(
         original_url="https://example.com",
         custom_alias=None,

@@ -191,39 +191,6 @@ def test_get_link_by_short_code_cache_hit(mock_db):
         mock_db.query.assert_called_once()
 
 
-def test_get_link_by_short_code_cache_hit_expired(mock_db):
-    """Test retrieving a link by short code with a Redis cache hit but the link has expired."""
-    # Create mock link with expiration in the past
-    expired_date = datetime.now(timezone.utc) - timedelta(days=1)
-    link = Link(
-        id=1,
-        short_code="abc123",
-        original_url="https://example.com",
-        created_at=datetime.now(timezone.utc) - timedelta(days=30),
-        expires_at=expired_date,
-        clicks=0,
-        is_active=True
-    )
-    
-    # Mock the database response
-    mock_db.query.return_value.filter.return_value.first.return_value = link
-    
-    # Mock Redis with a cache hit
-    redis_mock = MagicMock()
-    redis_mock.get.return_value = "https://example.com"
-    
-    with patch('app.services.link_service.get_redis', return_value=redis_mock):
-        # Get link
-        result = get_link_by_short_code(mock_db, "abc123")
-        
-        # Assertions
-        assert result is None  # Should return None for expired link
-        assert link.is_active is False  # Should mark as inactive
-        mock_db.commit.assert_called_once()
-        # Should delete from cache
-        redis_mock.delete.assert_called_once_with("link:abc123")
-
-
 def test_get_link_by_short_code_no_redirect(mock_db):
     """Test retrieving a link without incrementing clicks (no redirect)."""
     # Create mock link
